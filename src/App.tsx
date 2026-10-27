@@ -4,16 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useMemo, ChangeEvent } from 'react';
-import {
-  initDB,
-  getAllReports,
-  putReport,
-  deleteReport,
-  hasPassword,
-  savePassword,
-  verifyPassword,
-  downloadFile
-} from './db';
+import { supabase } from './db';
 import { ReportItem, SAMPLE_REPORTS } from './sampleReports';
 
 interface PendingReport {
@@ -67,16 +58,16 @@ export default function App() {
     }, 3600);
   };
 
-  // Initial load
+  // Initial load from Supabase
   useEffect(() => {
     (async () => {
       try {
-        await initDB();
         await reloadReports();
-        const hasPw = await hasPassword();
-        setIsPasswordRegistered(hasPw);
+        // Supabase 기반으로 전환함에 따라 비밀번호는 로컬스토리지 임시 활용 또는 기본값 처리
+        const localPw = localStorage.getItem('chem_admin_pw');
+        setIsPasswordRegistered(!!localPw);
       } catch (err: any) {
-        showToast('저장소 초기화 오류: ' + (err?.message || err));
+        showToast('데이터 로드 오류: ' + (err?.message || err));
       } finally {
         setLoading(false);
       }
@@ -84,7 +75,26 @@ export default function App() {
   }, []);
 
   const reloadReports = async () => {
-    const list = await getAllReports();
+    const { data, error } = await supabase
+      .from('reports')
+      .select('*')
+      .order('date', { ascending: false });
+
+    if (error) {
+      console.error('보고서 불러오기 실패:', error);
+      throw error;
+    }
+
+    const list: ReportItem[] = (data || []).map((row: any) => ({
+      id: row.id,
+      date: row.date,
+      category: row.category,
+      title: row.title,
+      filename: row.filename,
+      html: row.content || row.html,
+      created: row.created_at || new Date().toISOString()
+    }));
+
     list.sort((a, b) => b.date.localeCompare(a.date) || b.created.localeCompare(a.created));
     setReports(list);
   };
@@ -147,13 +157,19 @@ export default function App() {
   };
 
   const handleDownloadReport = (r: ReportItem) => {
-    downloadFile(r.filename || `${r.date}.html`, r.html, 'text/html;charset=utf-8');
+    const blob = new Blob([r.html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = r.filename || `${r.date}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   // Admin page navigation
   const handleEnterAdmin = async () => {
-    const hasPw = await hasPassword();
-    setIsPasswordRegistered(hasPw);
+    const localPw = localStorage.getItem('chem_admin_pw');
+    setIsPasswordRegistered(!!localPw);
     setView('admin');
   };
 
@@ -171,7 +187,9 @@ export default function App() {
   // Admin Authenticate / Register
   const handleAuthSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!isPasswordRegistered) {
+    const localPw = localStorage.getItem('chem_admin_pw');
+
+    if (!localPw) {
       if (authPassword.length < 8) {
         showToast('암호는 8자 이상 입력해 주세요.');
         return;
@@ -180,29 +198,20 @@ export default function App() {
         showToast('암호 확인이 일치하지 않습니다.');
         return;
       }
-      try {
-        await savePassword(authPassword);
-        setIsPasswordRegistered(true);
-        setIsAdminUnlocked(true);
-        setAuthPassword('');
-        setAuthConfirmPassword('');
-        showToast('관리자 암호가 등록되었으며 인증되었습니다.');
-      } catch (err: any) {
-        showToast('암호 저장 실패: ' + (err?.message || err));
-      }
+      localStorage.setItem('chem_admin_pw', authPassword);
+      setIsPasswordRegistered(true);
+      setIsAdminUnlocked(true);
+      setAuthPassword('');
+      setAuthConfirmPassword('');
+      showToast('관리자 암호가 등록되었으며 인증되었습니다.');
     } else {
-      try {
-        const ok = await verifyPassword(authPassword);
-        if (!ok) {
-          showToast('관리자 암호가 올바르지 않습니다.');
-          return;
-        }
-        setIsAdminUnlocked(true);
-        setAuthPassword('');
-        showToast('관리자 인증이 완료되었습니다.');
-      } catch (err: any) {
-        showToast('인증 오류: ' + (err?.message || err));
+      if (authPassword !== localPw) {
+        showToast('관리자 암호가 올바르지 않습니다.');
+        return;
       }
+      setIsAdminUnlocked(true);
+      setAuthPassword('');
+      showToast('관리자 인증이 완료되었습니다.');
     }
   };
 
@@ -213,14 +222,10 @@ export default function App() {
       showToast('8자 이상의 동일한 새 암호를 입력해 주세요.');
       return;
     }
-    try {
-      await savePassword(newPassword);
-      setNewPassword('');
-      setNewPasswordConfirm('');
-      showToast('관리자 암호를 변경했습니다.');
-    } catch (err: any) {
-      showToast('암호 변경 실패: ' + (err?.message || err));
-    }
+    localStorage.setItem('chem_admin_pw', newPassword);
+    setNewPassword('');
+    setNewPasswordConfirm('');
+    showToast('관리자 암호를 변경했습니다.');
   };
 
   // File parsing helpers
@@ -290,22 +295,25 @@ export default function App() {
 
     try {
       for (const item of pendingList) {
-        const newReport: ReportItem = {
+        const newReport = {
           id: crypto.randomUUID ? crypto.randomUUID() : 'rep-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
           date: item.date,
           category: item.category,
           title: item.title.trim(),
           filename: item.filename,
-          html: item.html,
-          created: new Date().toISOString()
+          content: item.html,
+          created_at: new Date().toISOString()
         };
-        await putReport(newReport);
+
+        const { error } = await supabase.from('reports').insert([newReport]);
+        if (error) throw error;
       }
+
       const count = pendingList.length;
       setPendingList([]);
       if (fileInputRef.current) fileInputRef.current.value = '';
       await reloadReports();
-      showToast(`${count}개 HTML 보고서가 저장되었습니다.`);
+      showToast(`${count}개 HTML 보고서가 클라우드에 저장되었습니다.`);
     } catch (err: any) {
       showToast('보고서 저장 실패: ' + (err?.message || err));
     }
@@ -320,7 +328,9 @@ export default function App() {
       return;
     }
     try {
-      await deleteReport(id);
+      const { error } = await supabase.from('reports').delete().eq('id', id);
+      if (error) throw error;
+
       await reloadReports();
       showToast('보고서를 삭제했습니다.');
     } catch (err: any) {
@@ -337,7 +347,15 @@ export default function App() {
       2
     );
     const today = new Date().toISOString().slice(0, 10);
-    downloadFile(`ChemMarket_Backup_${today}.json`, jsonStr, 'application/json');
+    
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ChemMarket_Backup_${today}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
     showToast('전체 백업 파일 다운로드가 시작되었습니다.');
   };
 
@@ -357,16 +375,17 @@ export default function App() {
       }
 
       for (const r of data.reports) {
-        if (
-          typeof r.id !== 'string' ||
-          typeof r.html !== 'string' ||
-          typeof r.date !== 'string' ||
-          typeof r.title !== 'string' ||
-          !['데일리', '위클리', '기획 시황'].includes(r.category)
-        ) {
-          throw new Error('백업 데이터 항목의 형식이 올바르지 않습니다.');
-        }
-        await putReport(r);
+        const payload = {
+          id: r.id,
+          date: r.date,
+          category: r.category,
+          title: r.title,
+          filename: r.filename,
+          content: r.html,
+          created_at: r.created || new Date().toISOString()
+        };
+        const { error } = await supabase.from('reports').upsert([payload]);
+        if (error) throw error;
       }
 
       await reloadReports();
@@ -381,11 +400,24 @@ export default function App() {
   // Restore sample reports helper
   const handleRestoreSampleReports = async () => {
     if (!window.confirm('기본 샘플 보고서(4종)를 추가하시겠습니까?')) return;
-    for (const r of SAMPLE_REPORTS) {
-      await putReport(r);
+    try {
+      for (const r of SAMPLE_REPORTS) {
+        const payload = {
+          id: r.id,
+          date: r.date,
+          category: r.category,
+          title: r.title,
+          filename: r.filename,
+          content: r.html,
+          created_at: r.created || new Date().toISOString()
+        };
+        await supabase.from('reports').upsert([payload]);
+      }
+      await reloadReports();
+      showToast('샘플 보고서가 등록되었습니다.');
+    } catch (err: any) {
+      showToast('샘플 등록 실패: ' + (err?.message || err));
     }
-    await reloadReports();
-    showToast('샘플 보고서가 등록되었습니다.');
   };
 
   return (
@@ -563,10 +595,6 @@ export default function App() {
                     {!isPasswordRegistered ? '관리자 암호 설정' : '인증'}
                   </button>
                 </form>
-
-                <p className="mini">
-                  이 파일의 암호 기능은 로컬 브라우저 편집 화면을 잠그는 기능입니다. 서버에서 검증하는 실제 사용자 권한 관리가 아닙니다.
-                </p>
               </div>
             ) : (
               /* Unlocked: Editor & Management */
@@ -575,7 +603,7 @@ export default function App() {
                 <div className="panel">
                   <h2>2. HTML 보고서 등록</h2>
                   <div className="notice">
-                    보고서는 <b>HTML 파일(.html, .htm)</b>로 업로드합니다. 여러 개를 한 번에 선택할 수 있으며, 날짜·분류·제목은 등록 전에 수정할 수 있습니다. 동일 날짜/분류의 보고서도 별도로 보관됩니다.
+                    보고서는 <b>HTML 파일(.html, .htm)</b>로 업로드합니다. 여러 개를 한 번에 선택할 수 있으며, 날짜·분류·제목은 등록 전에 수정할 수 있습니다.
                   </div>
 
                   <div
@@ -587,8 +615,6 @@ export default function App() {
                     <span style={{ fontSize: '13px', color: '#64748b' }}>
                       (클릭하거나 드래그하여 .html 파일을 추가하세요)
                     </span>
-                    <br />
-                    <br />
                     <input
                       ref={fileInputRef}
                       id="files"
@@ -606,50 +632,21 @@ export default function App() {
                         <div
                           key={idx}
                           className="panel"
-                          style={{
-                            background: '#f8fafc',
-                            border: '1px solid #dae3ed',
-                            marginTop: '12px'
-                          }}
+                          style={{ background: '#f8fafc', border: '1px solid #dae3ed', marginTop: '12px' }}
                         >
-                          <div
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              marginBottom: '8px'
-                            }}
-                          >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                             <b style={{ color: '#0f2744' }}>{p.filename}</b>
-                            <button
-                              type="button"
-                              className="btn alt"
-                              style={{ padding: '4px 8px', fontSize: '12px' }}
-                              onClick={() => removePending(idx)}
-                            >
+                            <button type="button" className="btn alt" style={{ padding: '4px 8px', fontSize: '12px' }} onClick={() => removePending(idx)}>
                               제거
-                            </button>
+                          </button>
                           </div>
                           <div className="field">
                             <label>보고서 날짜</label>
-                            <input
-                              type="date"
-                              value={p.date}
-                              onChange={e => updatePending(idx, 'date', e.target.value)}
-                            />
+                            <input type="date" value={p.date} onChange={e => updatePending(idx, 'date', e.target.value)} />
                           </div>
                           <div className="field">
                             <label>분류</label>
-                            <select
-                              value={p.category}
-                              onChange={e =>
-                                updatePending(
-                                  idx,
-                                  'category',
-                                  e.target.value as '데일리' | '위클리' | '기획 시황'
-                                )
-                              }
-                            >
+                            <select value={p.category} onChange={e => updatePending(idx, 'category', e.target.value as any)}>
                               <option value="데일리">데일리</option>
                               <option value="위클리">위클리</option>
                               <option value="기획 시황">기획 시황</option>
@@ -657,189 +654,92 @@ export default function App() {
                           </div>
                           <div className="field">
                             <label>보고서 제목</label>
-                            <input
-                              type="text"
-                              value={p.title}
-                              onChange={e => updatePending(idx, 'title', e.target.value)}
-                            />
+                            <input type="text" value={p.title} onChange={e => updatePending(idx, 'title', e.target.value)} />
                           </div>
                         </div>
                       ))}
-                    </div>
-                  )}
+                  </div>
+                )}
 
-                  <button
-                    className="btn green"
-                    id="saveReports"
-                    disabled={pendingList.length === 0}
-                    onClick={handleSaveReports}
-                  >
-                    선택한 HTML 보고서 저장
+                <button className="btn green" id="saveReports" disabled={pendingList.length === 0} onClick={handleSaveReports}>
+                  선택한 HTML 보고서 저장
+                </button>
+              </div>
+
+              {/* 3. 등록 보고서 관리 */}
+              <div className="panel">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                  <h2 style={{ margin: 0 }}>3. 등록 보고서 관리</h2>
+                  <button className="btn alt" style={{ fontSize: '12px', padding: '6px 10px' }} onClick={handleRestoreSampleReports}>
+                    + 샘플 보고서 추가
                   </button>
                 </div>
-
-                {/* 3. 등록 보고서 관리 */}
-                <div className="panel">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                    <h2 style={{ margin: 0 }}>3. 등록 보고서 관리</h2>
-                    <button
-                      className="btn alt"
-                      style={{ fontSize: '12px', padding: '6px 10px' }}
-                      onClick={handleRestoreSampleReports}
-                    >
-                      + 샘플 보고서 추가
-                    </button>
-                  </div>
-                  <div id="manageList">
-                    {reports.length === 0 ? (
-                      <p className="muted">등록된 보고서가 없습니다.</p>
-                    ) : (
-                      reports.map(r => (
-                        <div key={r.id} className="row">
-                          <span className="date">{r.date}</span>
-                          <span
-                            className={`tag ${
-                              r.category === '위클리'
-                                ? 'weekly'
-                                : r.category === '기획 시황'
-                                ? 'special'
-                                : ''
-                            }`}
-                          >
-                            {r.category}
-                          </span>
-                          <span className="title">{r.title}</span>
-                          <div className="actions">
-                            <button
-                              className="btn alt"
-                              onClick={() => handleOpenReport(r)}
-                            >
-                              보기
-                            </button>
-                            <button
-                              className="btn alt"
-                              onClick={() => handleDownloadReport(r)}
-                            >
-                              HTML 받기
-                            </button>
-                            <button
-                              className="btn danger"
-                              onClick={() => handleDeleteReport(r.id)}
-                            >
-                              삭제
-                            </button>
-                          </div>
+                <div id="manageList">
+                  {reports.length === 0 ? (
+                    <p className="muted">등록된 보고서가 없습니다.</p>
+                  ) : (
+                    reports.map(r => (
+                      <div key={r.id} className="row">
+                        <span className="date">{r.date}</span>
+                        <span className={`tag ${r.category === '위클리' ? 'weekly' : r.category === '기획 시황' ? 'special' : ''}`}>
+                          {r.category}
+                        </span>
+                        <span className="title">{r.title}</span>
+                        <div className="actions">
+                          <button className="btn alt" onClick={() => handleOpenReport(r)}>보기</button>
+                          <button className="btn alt" onClick={() => handleDownloadReport(r)}>HTML 받기</button>
+                          <button className="btn danger" onClick={() => handleDeleteReport(r.id)}>삭제</button>
                         </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                {/* 4. 보관 데이터 백업 / 복원 */}
-                <div className="panel">
-                  <h2>4. 보관 데이터 백업 / 복원</h2>
-                  <p className="mini">
-                    HTML 파일과 등록 정보를 JSON 파일로 백업합니다. 다른 PC로 옮길 때 백업 파일을 가져와 복원할 수 있습니다. 복원 시 기존 보고서는 유지하고 ID가 같은 보고서는 덮어씁니다.
-                  </p>
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button className="btn alt" id="backup" onClick={handleBackup}>
-                      전체 백업 다운로드
-                    </button>
-                    <input
-                      ref={restoreInputRef}
-                      id="restore"
-                      type="file"
-                      accept=".json,application/json"
-                      style={{ maxWidth: '260px' }}
-                      onChange={handleRestore}
-                    />
-                  </div>
-                </div>
-
-                {/* 5. 관리자 암호 변경 */}
-                <div className="panel">
-                  <h2>5. 관리자 암호 변경</h2>
-                  <div className="field">
-                    <label>새 관리자 암호</label>
-                    <input
-                      id="newPass"
-                      type="password"
-                      minLength={8}
-                      placeholder="8자 이상"
-                      value={newPassword}
-                      onChange={e => setNewPassword(e.target.value)}
-                    />
-                  </div>
-                  <div className="field">
-                    <label>새 관리자 암호 확인</label>
-                    <input
-                      id="newPass2"
-                      type="password"
-                      minLength={8}
-                      placeholder="새 암호 다시 입력"
-                      value={newPasswordConfirm}
-                      onChange={e => setNewPasswordConfirm(e.target.value)}
-                    />
-                  </div>
-                  <button
-                    id="changePass"
-                    className="btn alt"
-                    onClick={handleChangePassword}
-                  >
-                    암호 변경
-                  </button>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
-            )}
-          </section>
-        )}
+
+              {/* 4. 보관 데이터 백업 / 복원 */}
+              <div className="panel">
+                <h2>4. 보관 데이터 백업 / 복원</h2>
+                <p className="mini">HTML 파일과 등록 정보를 JSON 파일로 백업합니다.</p>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button className="btn alt" id="backup" onClick={handleBackup}>전체 백업 다운로드</button>
+                  <input ref={restoreInputRef} id="restore" type="file" accept=".json,application/json" style={{ maxWidth: '260px' }} onChange={handleRestore} />
+                </div>
+              </div>
+
+              {/* 5. 관리자 암호 변경 */}
+              <div className="panel">
+                <h2>5. 관리자 암호 변경</h2>
+                <div className="field">
+                  <label>새 관리자 암호</label>
+                  <input id="newPass" type="password" minLength={8} placeholder="8자 이상" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label>새 관리자 암호 확인</label>
+                  <input id="newPass2" type="password" minLength={8} placeholder="새 암호 다시 입력" value={newPasswordConfirm} onChange={e => setNewPasswordConfirm(e.target.value)} />
+                </div>
+                <button id="changePass" className="btn alt" onClick={handleChangePassword}>암호 변경</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       </main>
 
       {/* Viewer Modal */}
       {activeReport && (
         <div className="viewer" id="viewer">
           <div className="viewerbar">
-            <button
-              id="closeViewer"
-              className="btn alt"
-              onClick={handleCloseViewer}
-            >
-              ← 목록
-            </button>
-            <strong id="viewerTitle">
-              {activeReport.date} | {activeReport.title}
-            </strong>
-            <button
-              id="printReport"
-              className="btn"
-              onClick={handlePrint}
-            >
-              🖨 인쇄 / PDF 저장
-            </button>
-            <button
-              id="downloadReport"
-              className="btn alt"
-              onClick={() => handleDownloadReport(activeReport)}
-            >
-              HTML 다운로드
-            </button>
+            <button id="closeViewer" className="btn alt" onClick={handleCloseViewer}>← 목록</button>
+            <strong id="viewerTitle">{activeReport.date} | {activeReport.title}</strong>
+            <button id="printReport" className="btn" onClick={handlePrint}>🖨 인쇄 / PDF 저장</button>
+            <button id="downloadReport" className="btn alt" onClick={() => handleDownloadReport(activeReport)}>HTML 다운로드</button>
           </div>
-          <iframe
-            ref={iframeRef}
-            id="reportFrame"
-            title="HTML 보고서"
-            sandbox="allow-same-origin allow-modals"
-            srcDoc={activeReport.html}
-          />
+          <iframe ref={iframeRef} id="reportFrame" title="HTML 보고서" sandbox="allow-same-origin allow-modals" srcDoc={activeReport.html} />
         </div>
       )}
 
       {/* Toast Notification */}
-      {toastMessage && (
-        <div id="toast" role="status">
-          {toastMessage}
-        </div>
-      )}
+      {toastMessage && <div id="toast" role="status">{toastMessage}</div>}
     </div>
   );
 }
