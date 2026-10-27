@@ -63,7 +63,6 @@ export default function App() {
     (async () => {
       try {
         await reloadReports();
-        // Supabase 기반으로 전환함에 따라 비밀번호는 로컬스토리지 임시 활용 또는 기본값 처리
         const localPw = localStorage.getItem('chem_admin_pw');
         setIsPasswordRegistered(!!localPw);
       } catch (err: any) {
@@ -638,7 +637,7 @@ export default function App() {
                             <b style={{ color: '#0f2744' }}>{p.filename}</b>
                             <button type="button" className="btn alt" style={{ padding: '4px 8px', fontSize: '12px' }} onClick={() => removePending(idx)}>
                               제거
-                          </button>
+                            </button>
                           </div>
                           <div className="field">
                             <label>보고서 날짜</label>
@@ -658,71 +657,71 @@ export default function App() {
                           </div>
                         </div>
                       ))}
-                  </div>
-                )}
+                    </div>
+                  )}
 
-                <button className="btn green" id="saveReports" disabled={pendingList.length === 0} onClick={handleSaveReports}>
-                  선택한 HTML 보고서 저장
-                </button>
-              </div>
-
-              {/* 3. 등록 보고서 관리 */}
-              <div className="panel">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h2 style={{ margin: 0 }}>3. 등록 보고서 관리</h2>
-                  <button className="btn alt" style={{ fontSize: '12px', padding: '6px 10px' }} onClick={handleRestoreSampleReports}>
-                    + 샘플 보고서 추가
+                  <button className="btn green" id="saveReports" disabled={pendingList.length === 0} onClick={handleSaveReports}>
+                    선택한 HTML 보고서 저장
                   </button>
                 </div>
-                <div id="manageList">
-                  {reports.length === 0 ? (
-                    <p className="muted">등록된 보고서가 없습니다.</p>
-                  ) : (
-                    reports.map(r => (
-                      <div key={r.id} className="row">
-                        <span className="date">{r.date}</span>
-                        <span className={`tag ${r.category === '위클리' ? 'weekly' : r.category === '기획 시황' ? 'special' : ''}`}>
-                          {r.category}
-                        </span>
-                        <span className="title">{r.title}</span>
-                        <div className="actions">
-                          <button className="btn alt" onClick={() => handleOpenReport(r)}>보기</button>
-                          <button className="btn alt" onClick={() => handleDownloadReport(r)}>HTML 받기</button>
-                          <button className="btn danger" onClick={() => handleDeleteReport(r.id)}>삭제</button>
+
+                {/* 3. 등록 보고서 관리 */}
+                <div className="panel">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <h2 style={{ margin: 0 }}>3. 등록 보고서 관리</h2>
+                    <button className="btn alt" style={{ fontSize: '12px', padding: '6px 10px' }} onClick={handleRestoreSampleReports}>
+                      + 샘플 보고서 추가
+                    </button>
+                  </div>
+                  <div id="manageList">
+                    {reports.length === 0 ? (
+                      <p className="muted">등록된 보고서가 없습니다.</p>
+                    ) : (
+                      reports.map(r => (
+                        <div key={r.id} className="row">
+                          <span className="date">{r.date}</span>
+                          <span className={`tag ${r.category === '위클리' ? 'weekly' : r.category === '기획 시황' ? 'special' : ''}`}>
+                            {r.category}
+                          </span>
+                          <span className="title">{r.title}</span>
+                          <div className="actions">
+                            <button className="btn alt" onClick={() => handleOpenReport(r)}>보기</button>
+                            <button className="btn alt" onClick={() => handleDownloadReport(r)}>HTML 받기</button>
+                            <button className="btn danger" onClick={() => handleDeleteReport(r.id)}>삭제</button>
+                          </div>
                         </div>
-                      </div>
-                    ))
-                  )}
+                      ))
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              {/* 4. 보관 데이터 백업 / 복원 */}
-              <div className="panel">
-                <h2>4. 보관 데이터 백업 / 복원</h2>
-                <p className="mini">HTML 파일과 등록 정보를 JSON 파일로 백업합니다.</p>
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <button className="btn alt" id="backup" onClick={handleBackup}>전체 백업 다운로드</button>
-                  <input ref={restoreInputRef} id="restore" type="file" accept=".json,application/json" style={{ maxWidth: '260px' }} onChange={handleRestore} />
+                {/* 4. 보관 데이터 백업 / 복원 */}
+                <div className="panel">
+                  <h2>4. 보관 데이터 백업 / 복원</h2>
+                  <p className="mini">HTML 파일과 등록 정보를 JSON 파일로 백업합니다.</p>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button className="btn alt" id="backup" onClick={handleBackup}>전체 백업 다운로드</button>
+                    <input ref={restoreInputRef} id="restore" type="file" accept=".json,application/json" style={{ maxWidth: '260px' }} onChange={handleRestore} />
+                  </div>
                 </div>
-              </div>
 
-              {/* 5. 관리자 암호 변경 */}
-              <div className="panel">
-                <h2>5. 관리자 암호 변경</h2>
-                <div className="field">
-                  <label>새 관리자 암호</label>
-                  <input id="newPass" type="password" minLength={8} placeholder="8자 이상" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+                {/* 5. 관리자 암호 변경 */}
+                <div className="panel">
+                  <h2>5. 관리자 암호 변경</h2>
+                  <div className="field">
+                    <label>새 관리자 암호</label>
+                    <input id="newPass" type="password" minLength={8} placeholder="8자 이상" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+                  </div>
+                  <div className="field">
+                    <label>새 관리자 암호 확인</label>
+                    <input id="newPass2" type="password" minLength={8} placeholder="새 암호 다시 입력" value={newPasswordConfirm} onChange={e => setNewPasswordConfirm(e.target.value)} />
+                  </div>
+                  <button id="changePass" className="btn alt" onClick={handleChangePassword}>암호 변경</button>
                 </div>
-                <div className="field">
-                  <label>새 관리자 암호 확인</label>
-                  <input id="newPass2" type="password" minLength={8} placeholder="새 암호 다시 입력" value={newPasswordConfirm} onChange={e => setNewPasswordConfirm(e.target.value)} />
-                </div>
-                <button id="changePass" className="btn alt" onClick={handleChangePassword}>암호 변경</button>
               </div>
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </section>
+        )}
       </main>
 
       {/* Viewer Modal */}
@@ -734,13 +733,13 @@ export default function App() {
             <button id="printReport" className="btn" onClick={handlePrint}>🖨 인쇄 / PDF 저장</button>
             <button id="downloadReport" className="btn alt" onClick={() => handleDownloadReport(activeReport)}>HTML 다운로드</button>
           </div>
-          <iframe 
-  ref={iframeRef} 
-  id="reportFrame" 
-  title="HTML 보고서" 
-  sandbox="allow-same-origin allow-scripts allow-modals allow-popups" 
-  srcDoc={activeReport.html} 
-/>
+          <iframe
+            ref={iframeRef}
+            id="reportFrame"
+            title="HTML 보고서"
+            sandbox="allow-same-origin allow-scripts allow-modals allow-popups"
+            srcDoc={activeReport.html}
+          />
         </div>
       )}
 
