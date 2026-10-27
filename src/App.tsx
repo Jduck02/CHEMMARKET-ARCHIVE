@@ -734,7 +734,13 @@ export default function App() {
             <button id="printReport" className="btn" onClick={handlePrint}>🖨 인쇄 / PDF 저장</button>
             <button id="downloadReport" className="btn alt" onClick={() => handleDownloadReport(activeReport)}>HTML 다운로드</button>
           </div>
-          <iframe ref={iframeRef} id="reportFrame" title="HTML 보고서" sandbox="allow-same-origin allow-modals" srcDoc={activeReport.html} />
+          <iframe 
+  ref={iframeRef} 
+  id="reportFrame" 
+  title="HTML 보고서" 
+  sandbox="allow-same-origin allow-scripts allow-modals allow-popups" 
+  srcDoc={activeReport.html} 
+/>
         </div>
       )}
 
